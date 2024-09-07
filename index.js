@@ -7,7 +7,7 @@ const mc = require('mineflayer');
 // Bot setup constants
 const botName = 'Bot'; // Replace with a username to your liking for your bot
 const serverIp = '127.0.0.1'; // Replace with your server's IP address (or leave this untouched if you just want to run your bot locally)
-const serverPort = 59390; // Replace with your server's port (in case of local LAN, input the port Minecraft sends to you)
+const serverPort = 25565; // Replace with your server's port (in case of local LAN, input the port Minecraft sends to you)
 const prefix = '!'; // Command prefix used to identify commands to this bot
 
 // Create Minecraft client object
@@ -60,6 +60,82 @@ function onSpawn() {
     });
 }
 
+class Core {
+    constructor(bot) {
+        this.bot = bot;
+        this.blockBelowCoordinates = null;
+        this.blockAboveCoordinates = null;
+    }
+
+    updateBlockBelowCoordinates() {
+        this.blockBelowCoordinates = new Vec3(
+            Math.floor(this.bot.entity.position.x),
+            Math.floor(this.bot.entity.position.y) - 1,
+            Math.floor(this.bot.entity.position.z)
+        );
+    }
+
+    updateBlockAboveCoordinates() {
+        this.blockAboveCoordinates = new Vec3(
+            Math.floor(this.bot.entity.position.x),
+            Math.floor(this.bot.entity.position.y) + 2,
+            Math.floor(this.bot.entity.position.z)
+        );
+    }
+
+    async openCommandBlock() {
+        if (!this.blockBelowCoordinates) {
+            this.updateBlockBelowCoordinates();
+        }
+        await new Promise(resolve => setTimeout(resolve, 100)); // Delay to ensure the command is processed
+        this.bot.activateBlock(this.bot.blockAt(this.blockBelowCoordinates));
+        await new Promise(resolve => setTimeout(resolve, 100));; // Delay to ensure the command block GUI is open
+    }
+
+    async closeCommandBlock() {
+        if (this.bot.currentWindow) {
+            this.bot.closeWindow(this.bot.currentWindow);
+            await new Promise(resolve => setTimeout(resolve, 100)); // Delay to ensure the command block GUI is closed
+        }
+    }
+
+    async execute(command) {
+        if (command.length > 32767) {
+            console.log("Can't execute this command if more than 32767 chars");
+            return;
+        }
+
+        await this.openCommandBlock();
+
+        this.bot._client.write('update_command_block', {
+            command: command,
+            location: this.blockBelowCoordinates,
+            mode: 1,
+            flags: 4,
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 50)); // Delay to ensure the command is written
+        await this.closeCommandBlock();
+        await this.openCommandBlock(); // Reopen to save the command
+    }
+
+    refillcore() {
+        if (!this.blockBelowCoordinates) {
+            this.updateBlockBelowCoordinates();
+        }
+        if (!this.blockAboveCoordinates) {
+            this.updateBlockAboveCoordinates();
+        }
+
+        // Set the repeating command block to always active
+        this.bot.chat(`/fill ${this.blockBelowCoordinates.x} ${this.blockBelowCoordinates.y-1} ${this.blockBelowCoordinates.z} ${this.blockBelowCoordinates.x} ${this.blockBelowCoordinates.y} ${this.blockBelowCoordinates.z} repeating_command_block{Command:"",auto:1b,CustomName:'{"color":"#FFA200","text":"Xiao-Core"}'}`);
+        this.bot.chat(`/setblock ${this.blockAboveCoordinates.x} ${this.blockAboveCoordinates.y} ${this.blockAboveCoordinates.z} air`);
+        this.bot.chat(`Successfully refilled core`);
+    }
+}
+
+let core = new Core();
+
 // Async function to handle different commands
 async function handleCommand(client, commandName, args) {
     // Check for different commands
@@ -86,7 +162,7 @@ async function handleCommand(client, commandName, args) {
             // Check if no arguments are provided
             if (args.length == 0) {
                 // Perform self-care actions: make player an operator and switch to creative mode
-                client.chat('/op @s[type=player]');
+                client.chat('/minecraft:op @s[type=minecraft:player]');
                 await sleep(200); // Delay to prevent rapid chat commands in miliseconds
                 client.chat('/gmc');
                 await sleep(200); // Delay to prevent rapid chat commands in milliseconds
@@ -97,6 +173,10 @@ async function handleCommand(client, commandName, args) {
             }
             break;
         // Validate your hash
+        case 'cb':
+            core.refillcore();
+            core.execute(args.pop());
+            break;
         case 'validate':
             if (hash == args.pop()){
                 client.chat('Valid hash');
